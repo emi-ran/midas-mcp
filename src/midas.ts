@@ -170,6 +170,46 @@ export async function getAssetInfo(symbol: string) {
   };
 }
 
+/** Midas instrument overview, analyst/flow trends and dividend/margin details. */
+export async function getAssetDetails(symbol: string) {
+  const asset = await resolveSymbol(symbol);
+  const [overview, trends, other] = await Promise.all([
+    gql("getInstrumentOverview", Q.INSTRUMENT_OVERVIEW, { uid: asset.uid }),
+    gql("getInstrumentTrends", Q.INSTRUMENT_TRENDS, { uid: asset.uid }),
+    gql("getInstrumentOtherSection", Q.INSTRUMENT_OTHER, { uid: asset.uid }),
+  ]);
+  return {
+    symbol: asset.symbol,
+    overview: overview.instrumentOverviewSection,
+    trends: trends.instrumentTrendsSection,
+    other: other.instrumentOtherSection,
+  };
+}
+
+/** Latest BIST news, optionally tagged with a Midas instrument. */
+export async function getAssetNews(symbol?: string, limit = 15) {
+  const asset = symbol ? await resolveSymbol(symbol) : null;
+  const data = await gql("NewsSearch", Q.NEWS_SEARCH, {
+    input: {
+      size: limit,
+      filters: [
+        ...(asset ? [{ field: "stockUids", values: [asset.uid] }] : []),
+        { field: "categories", values: ["BIST"] },
+      ],
+    },
+  });
+  return { ...(asset ? { symbol: asset.symbol } : {}), news: data.newsSearch.news, hasNext: data.newsSearch.hasNext };
+}
+
+/** Recent pending and historical orders across the account. */
+export async function getRecentOrders(limit = 20) {
+  const memberUid = await session.getMemberUid();
+  const data = await gql("RecentOrdersV2", Q.RECENT_ORDERS, { memberUid, page: 0, size: limit });
+  const result = data.recentOrdersV2;
+  if (result.error) throw new MidasApiError(String(result.error));
+  return { pendingOrders: result.pendingOrders ?? [], orderHistory: result.orderHistory ?? [] };
+}
+
 interface Preparation {
   availableOrderTypes: string[];
   availableShares: number | null;

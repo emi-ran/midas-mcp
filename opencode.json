@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "midas": {
+      "type": "local",
+      "command": ["node", "C:/Users/emiran/Documents/GitHub/midas-mcp/dist/index.js"],
+      "enabled": true
+    }
+  }
+}

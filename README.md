@@ -19,9 +19,12 @@ session cookies are attached automatically.
 | `get_assets` | – | Every open position: quantity, average cost, price, market value, P/L |
 | `get_asset_price` | `symbol`, optional `currency` | Last price, previous close, % change, session status |
 | `get_asset_info` | `symbol` | Instrument name, market and description, plus current price |
+| `get_asset_details` | `symbol` | Midas overview stats/digest, analyst and trading trends, dividends and margin info |
+| `get_asset_news` | optional `symbol`, `limit` (default 15, max 100) | Latest Midas BIST news; optionally filter by stock. Title, source, date and URL |
 | `buy_asset` | `symbol`, `quantity`, optional `limit_price` | Places a buy order, returns the order id and status |
 | `sell_asset` | `symbol`, `quantity`, optional `limit_price` | Places a sell order, returns the order id and status |
 | `get_pending_orders` | `symbol` | Orders still waiting to execute, with their ids |
+| `get_recent_orders` | optional `limit` (default 20, max 200) | Pending orders and recent order history, including cancellation or fill status |
 | `cancel_order` | `order_id`, `symbol` | Cancels a pending order |
 
 Omitting `limit_price` places a market order. Symbols are resolved by search, so both

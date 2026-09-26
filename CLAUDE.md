@@ -32,10 +32,12 @@ Live account + market data comes from the `midas` MCP server (all read-only here
 
 - `get_asset_price(symbol)` — last price, previous close, % change, session status
 - `get_asset_info(symbol)` — instrument name, market, description
+- `get_asset_details(symbol)` — Midas display-formatted stats, digest, analyst/flow trends, dividend and margin information; verify financial figures against dated filings
 - `get_technicals(symbol)` — **the technical engine**: RSI(14), SMA/EMA 20/50/200, MACD,
   Bollinger Bands, ATR, annualized volatility, 52-week range, swing-pivot
   support/resistance with touch counts, volume-vs-average
 - `get_chart(symbol, interval, limit)` — raw OHLCV if you need the series directly
+- `get_asset_news(symbol?, limit?)` — latest Midas BIST news (15 by default), optionally tagged with an instrument; verify material claims against KAP
 - `get_portfolio` / `get_assets` — only when relating a scan to the user's holdings
 
 For everything else — macro, sector, fundamentals (F/K, PD/DD, FD/FAVÖK, EPS, debt,

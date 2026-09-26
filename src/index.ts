@@ -77,6 +77,25 @@ tool(
 );
 
 tool(
+  "get_asset_details",
+  "Get Midas instrument overview stats and digest, analyst ratings, bull/bear views, Midas user trading trends, dividends and margin info. Stats are display-formatted strings; digest is Midas commentary, not independently verified fundamentals.",
+  { symbol: z.string().describe("Ticker, e.g. ASELS") },
+  ({ symbol }) => midas.getAssetDetails(symbol),
+  READ_ONLY
+);
+
+tool(
+  "get_asset_news",
+  "Get latest Midas BIST news; optionally filter by stock. Returns title, provider, publication time and article URL. Defaults to 15 latest items.",
+  {
+    symbol: z.string().optional().describe("Optional ticker, e.g. ASELS; omit for all BIST news"),
+    limit: z.number().int().min(1).max(100).optional().describe("Number of latest articles (default 15, max 100)"),
+  },
+  ({ symbol, limit }) => midas.getAssetNews(symbol, limit),
+  READ_ONLY
+);
+
+tool(
   "buy_asset",
   `Place a BUY order. Orders whose estimated value exceeds ₺${config.maxOrderValueTry} are refused. ` +
     "Omit limit_price for a market order. Note that orders placed outside market hours queue for the next session " +
@@ -155,6 +174,14 @@ tool(
   "List orders for a symbol that are still waiting to execute, including their order ids for cancellation.",
   { symbol: z.string().describe("Ticker whose pending orders to list") },
   ({ symbol }) => midas.getPendingOrders(symbol),
+  READ_ONLY
+);
+
+tool(
+  "get_recent_orders",
+  "List recent pending and historical orders across the account, including final cancellation or fill status. Read-only.",
+  { limit: z.number().int().min(1).max(200).optional().describe("Page size (default 20, max 200)") },
+  ({ limit }) => midas.getRecentOrders(limit),
   READ_ONLY
 );
 
