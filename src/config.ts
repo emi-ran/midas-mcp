@@ -19,7 +19,9 @@ export const config = {
   /** Orders whose estimated value in TRY exceeds this are refused before submission. */
   maxOrderValueTry: Number(process.env.MAX_ORDER_VALUE_TRY ?? 5000),
   headless: (process.env.HEADLESS ?? "true").toLowerCase() !== "false",
-  sessionDir: path.join(PROJECT_ROOT, ".midas-session"),
+  sessionDir: process.env.MIDAS_SESSION_DIR ?? path.join(PROJECT_ROOT, ".midas-session"),
+  httpPort: process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : null,
+  httpToken: process.env.MCP_HTTP_TOKEN,
   atlasUrl: "https://atlas.getmidas.com/",
   graphqlUrl: "https://api.atlas.getmidas.com/router-graphql",
   /** Sent as x-client-version; only needs to look like a real web build. */
@@ -28,4 +30,7 @@ export const config = {
 
 if (!Number.isFinite(config.maxOrderValueTry) || config.maxOrderValueTry <= 0) {
   throw new Error("MAX_ORDER_VALUE_TRY must be a positive number");
+}
+if (config.httpPort !== null && (!Number.isInteger(config.httpPort) || config.httpPort < 1 || config.httpPort > 65535 || !config.httpToken || config.httpToken.length < 32)) {
+  throw new Error("MCP_HTTP_PORT requires valid port and MCP_HTTP_TOKEN of at least 32 characters");
 }

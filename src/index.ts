@@ -1,12 +1,16 @@
 #!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { config } from "./config.js";
 import { session } from "./session.js";
 import * as midas from "./midas.js";
 import { getTechnicals, getCandles } from "./technicals.js";
 
+function makeServer() {
 const server = new McpServer({ name: "midas-mcp", version: "0.1.0" });
 
 /** Tools return JSON text so the model gets structured, unambiguous data. */
@@ -195,6 +199,10 @@ tool(
   ({ order_id, symbol }) => midas.cancelOrder(order_id, symbol),
   { readOnlyHint: false, destructiveHint: false, openWorldHint: true }
 );
+return server;
+}
+
+const server = config.httpPort ? null : makeServer();
 
 const shutdown = async () => {
   await session.close().catch(() => {});
@@ -203,4 +211,32 @@ const shutdown = async () => {
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
 
-await server.connect(new StdioServerTransport());
+if (config.httpPort) {
+  const token = Buffer.from(config.httpToken!);
+  const http = createServer(async (req, res) => {
+    const supplied = req.headers.authorization;
+    const bearer = supplied?.startsWith("Bearer ") ? Buffer.from(supplied.slice(7)) : Buffer.alloc(0);
+    if (bearer.length !== token.length || !timingSafeEqual(bearer, token)) {
+      res.writeHead(401, { "content-type": "application/json" }).end('{"error":"Unauthorized"}');
+      return;
+    }
+    if (req.url !== "/mcp" || req.method !== "POST") {
+      res.writeHead(404).end();
+      return;
+    }
+    const instance = makeServer();
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    try {
+      await instance.connect(transport);
+      await transport.handleRequest(req, res);
+    } catch (error) {
+      console.error("MCP HTTP request failed", error);
+      if (!res.headersSent) res.writeHead(500).end();
+    } finally {
+      await instance.close();
+    }
+  });
+  http.listen(config.httpPort, "0.0.0.0");
+} else {
+  await server!.connect(new StdioServerTransport());
+}

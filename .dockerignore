@@ -1,0 +1,8 @@
+node_modules
+dist
+.env
+.midas-session
+.git
+discovery
+scans
+*-log.txt

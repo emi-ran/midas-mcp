@@ -85,6 +85,24 @@ The session is saved to `.midas-session/` and reused afterwards, so this is a on
 until the session expires. Only one process can use that profile at a time — stop the
 MCP server before running `npm run login`.
 
+### Dokploy / MetaMCP (Streamable HTTP)
+
+Deploy this repository as a separate Dockerfile application in Dokploy. Attach a
+persistent volume at `/data` before starting it; this keeps the authenticated browser
+profile across container restarts. Set environment variables `MIDAS_PHONE`,
+`MIDAS_PASSWORD`, `HEADLESS=true`, `MCP_HTTP_PORT=3000`,
+`MIDAS_SESSION_DIR=/data/midas-session`, and a random `MCP_HTTP_TOKEN` of at least
+32 characters. Never commit these credentials. Use one replica: Chromium cannot
+share the same profile across processes. The first tool call starts headless login;
+approve the notification in the Midas phone app (also when the session expires).
+If login fails, the tool returns an error; retry after correcting credentials.
+
+Route a HTTPS domain to container port 3000, or use a private Docker network.
+In MetaMCP choose **Streamable HTTP**, URL `https://YOUR_DOMAIN/mcp`, and header
+`Authorization: Bearer <MCP_HTTP_TOKEN>` (use MetaMCP's secure header field).
+Every request, including discovery, needs this header. Keep this endpoint private:
+it exposes real-money trading tools. No separate `npm run login` or `npm run start`.
+
 Verify it works:
 
 ```bash
