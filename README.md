@@ -74,11 +74,11 @@ credentials and session cookies, so keep them out of version control.
 
 ### First login
 
-Midas requires approving a push notification in the Midas mobile app, so the first login
-has to be interactive:
+Midas requires approving a push notification in the Midas mobile app. The login
+browser follows `HEADLESS` from `.env` (set `HEADLESS=false` to see it):
 
 ```bash
-npm run login          # opens a visible browser, then approve the prompt on your phone
+npm run login          # approve the prompt on your phone
 ```
 
 The session is saved to `.midas-session/` and reused afterwards, so this is a one-off

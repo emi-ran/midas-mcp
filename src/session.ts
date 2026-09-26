@@ -83,13 +83,6 @@ export class MidasSession {
    */
   private async login(): Promise<void> {
     const page = this.page!;
-    if (this.headless) {
-      throw new Error(
-        "Midas session has expired. Run `npm run login` (opens a visible browser), approve the push " +
-          "notification on your phone, then retry. Stop the MCP server first — it holds the same browser profile."
-      );
-    }
-
     await page.waitForSelector("#phone", { timeout: 30_000 });
     await page.fill("#phone", config.phone);
     await page.fill("#password", config.password);

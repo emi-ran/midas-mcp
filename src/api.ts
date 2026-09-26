@@ -4,7 +4,7 @@ import { session } from "./session.js";
 export class MidasApiError extends Error {}
 
 const SESSION_EXPIRED =
-  "Midas session has expired. Run `npm run login` (opens a visible browser), approve the push " +
+  "Midas session has expired. Run `npm run login`, approve the push " +
   "notification on your phone, then retry. Stop the MCP server first — it holds the same browser profile.";
 
 /**
