@@ -35,27 +35,16 @@ function remaining(value) {
 async function request(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", cache: "no-store", ...options });
   const data = await response.json().catch(() => ({}));
-  if (response.status === 401 && path !== "/api/dashboard/login") {
-    showLogin();
-    throw new Error("Yönetim oturumunun süresi doldu. Yeniden giriş yapın.");
+  if (response.status === 401) {
+    document.title = "Giriş";
+    window.location.replace("/");
+    throw new Error("Oturum sona erdi.");
   }
   if (!response.ok) throw new Error(data.error || `İstek başarısız (${response.status})`);
   return data;
 }
 
-function showLogin() {
-  csrf = null;
-  lastState = null;
-  $("app-view").hidden = true;
-  $("login-view").hidden = false;
-  $("login-form").reset();
-  $("login-error").hidden = true;
-  $("username").focus();
-}
-
-function showDashboard() {
-  $("login-view").hidden = true;
-  $("app-view").hidden = false;
+function startDashboard() {
   $("page-date").textContent = new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", year: "numeric" }).format(new Date());
   void loadState();
 }
@@ -211,29 +200,6 @@ async function loadHoldings() {
   }
 }
 
-$("login-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  $("login-error").hidden = true;
-  $("login-submit").disabled = true;
-  const username = $("username").value.trim();
-  const password = $("password").value;
-  try {
-    const data = await request("/api/dashboard/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    csrf = data.csrf;
-    $("password").value = "";
-    showDashboard();
-  } catch (error) {
-    $("login-error").textContent = error.message;
-    $("login-error").hidden = false;
-  } finally {
-    $("login-submit").disabled = false;
-  }
-});
-
 $("renew-button").addEventListener("click", async () => {
   $("renew-button").disabled = true;
   try {
@@ -253,10 +219,13 @@ $("reload-holdings").addEventListener("click", () => { void loadHoldings(); });
 $("logout-button").addEventListener("click", async () => {
   try {
     await request("/api/dashboard/logout", { method: "POST", headers: { "X-CSRF-Token": csrf } });
-  } catch {
-    // Clear the local view even if the network connection failed.
-  } finally {
-    showLogin();
+    document.title = "Giriş";
+    window.location.replace("/");
+  } catch (error) {
+    const notice = $("job-notice");
+    notice.hidden = false;
+    notice.classList.add("notice-error");
+    notice.textContent = error.message;
   }
 });
 
@@ -264,5 +233,5 @@ setInterval(renderCountdown, 1_000);
 setInterval(() => { void loadState(); }, 3_000);
 
 request("/api/dashboard/me")
-  .then((data) => { csrf = data.csrf; showDashboard(); })
-  .catch(() => { showLogin(); });
+  .then((data) => { csrf = data.csrf; startDashboard(); })
+  .catch(() => { document.title = "Giriş"; window.location.replace("/"); });

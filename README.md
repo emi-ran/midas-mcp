@@ -115,6 +115,10 @@ as the username and `MIDAS_PASSWORD` as the password; set `DASHBOARD_USERNAME` a
 `DASHBOARD_PASSWORD` for a separate dashboard login. These values stay on the server.
 Use HTTPS: the dashboard cookie is `Secure`, `HttpOnly`, and `SameSite=Strict` by
 default. Set `DASHBOARD_COOKIE_SECURE=false` only when testing on plain local HTTP.
+Before login, `/` serves a neutral page and favicon without brokerage or portfolio
+details. The dashboard HTML, CSS, and JavaScript are served only after the dashboard
+cookie is validated. This reduces what an unauthenticated visitor sees, but it is
+not a substitute for a strong password, HTTPS, and access restrictions.
 
 The page shows whether the Midas browser session is active, when its fixed 24-hour
 refresh token expires, and your open holdings with quantity and market value. The

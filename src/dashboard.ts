@@ -32,6 +32,7 @@ function sameSecret(actual: string, expected: string): boolean {
 
 function securityHeaders(res: ServerResponse): void {
   res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive");
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Content-Security-Policy",
@@ -131,15 +132,29 @@ async function staticFile(res: ServerResponse, file: string, contentType: string
 export async function handleDashboardRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
   if (req.method === "GET" && pathname === "/") {
-    await staticFile(res, "index.html", "text/html; charset=utf-8");
+    await staticFile(res, currentLogin(req) ? "dashboard.html" : "index.html", "text/html; charset=utf-8");
     return true;
   }
-  if (req.method === "GET" && pathname === "/app.css") {
-    await staticFile(res, "app.css", "text/css; charset=utf-8");
+  if (req.method === "GET" && pathname === "/favicon.svg") {
+    await staticFile(res, "favicon.svg", "image/svg+xml");
     return true;
   }
-  if (req.method === "GET" && pathname === "/app.js") {
-    await staticFile(res, "app.js", "text/javascript; charset=utf-8");
+  if (req.method === "GET" && pathname === "/login.css") {
+    await staticFile(res, "login.css", "text/css; charset=utf-8");
+    return true;
+  }
+  if (req.method === "GET" && pathname === "/login.js") {
+    await staticFile(res, "login.js", "text/javascript; charset=utf-8");
+    return true;
+  }
+  if (req.method === "GET" && (pathname === "/app.css" || pathname === "/app.js")) {
+    if (!currentLogin(req)) {
+      securityHeaders(res);
+      res.writeHead(404).end();
+      return true;
+    }
+    await staticFile(res, pathname.slice(1), pathname.endsWith(".css")
+      ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8");
     return true;
   }
   if (!pathname.startsWith("/api/dashboard/")) return false;

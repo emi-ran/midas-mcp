@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Midas · Oturum</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <section class="app-layout" id="app-view">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="wordmark"><span class="brand-symbol" aria-hidden="true">M</span><span>MIDAS <span class="wordmark-divider">/</span> OTURUM</span></div>
+        <nav class="topnav" aria-label="Ana menü"><span class="nav-current">Genel bakış</span></nav>
+        <button class="text-button" id="logout-button" type="button">Panelden çık <span aria-hidden="true">↗</span></button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <div class="page-heading">
+        <div><div class="eyebrow"><span class="eyebrow-line"></span> HESAP YÖNETİMİ <span class="eyebrow-dot">/</span> GENEL BAKIŞ</div><h1>Oturum ve varlıklar</h1><p>Midas bağlantın ve açık pozisyonların, tek bakışta.</p></div>
+        <div class="page-date" id="page-date"></div>
+      </div>
+
+      <div class="notice" id="job-notice" role="status" aria-live="polite" hidden></div>
+
+      <section class="session-card" aria-labelledby="session-heading">
+        <div class="session-card-top"><span class="section-kicker">01 / MİDAS OTURUMU</span><span class="status-pill" id="status-pill"><span class="status-dot"></span><span id="status-label">Kontrol ediliyor</span></span></div>
+        <div class="session-card-body">
+          <div class="session-primary"><h2 id="session-heading">Bağlantı durumu</h2><p id="session-description">Oturum bilgileri alınıyor.</p><button class="button button-light" id="renew-button" type="button" disabled><span id="renew-label">Oturumu Yenile</span><span class="button-arrow" aria-hidden="true">↗</span></button></div>
+          <div class="session-timer"><span class="timer-label">REFRESH TOKEN KALAN SÜRE</span><strong id="countdown">—</strong><span class="timer-caption" id="expiry-caption">Bitiş zamanı hesaplanıyor</span></div>
+        </div>
+        <div class="session-card-foot"><span>Son doğrulama</span><strong id="last-verified">—</strong><span class="foot-separator"></span><span>Oturum bitişi</span><strong id="expiry-time">—</strong></div>
+      </section>
+
+      <section class="holdings-section" aria-labelledby="holdings-heading">
+        <div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> 02 / PORTFÖY</div><h2 id="holdings-heading">Elimdeki varlıklar</h2><p>Açık pozisyonların güncel miktarı ve piyasa değeri.</p></div><button class="outline-button" id="reload-holdings" type="button">Varlıkları güncelle <span aria-hidden="true">↗</span></button></div>
+        <div class="summary-grid" id="summary-grid"></div>
+        <div class="holdings-card">
+          <div class="holdings-card-head"><span>VARLIKLAR <span id="position-count">—</span></span><span id="holdings-updated">Henüz güncellenmedi</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Varlık</th><th>Piyasa</th><th class="number-cell">Adet</th><th class="number-cell">Birim fiyat</th><th class="number-cell">Piyasa değeri</th></tr></thead><tbody id="holdings-body"><tr><td class="empty-cell" colspan="5">Oturum hazır olduğunda varlıklar burada görünecek.</td></tr></tbody></table></div>
+        </div>
+        <p class="table-note">Nakit bakiyesi bu listede yer almaz. Farklı para birimlerindeki varlıklar ayrı gösterilir.</p>
+      </section>
+    </main>
+    <footer class="app-footer"><span>Midas MCP · Kişisel kontrol paneli</span><span>Gerçek zamanlı oturum durumu</span></footer>
+  </section>
+</body>
+</html>

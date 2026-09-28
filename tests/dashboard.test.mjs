@@ -40,7 +40,18 @@ test("dashboard login protects status and manual renewal", async () => {
   try {
     const page = await fetch(base);
     assert.equal(page.status, 200);
-    assert.match(await page.text(), /Oturum ve varlıklar/);
+    const publicHtml = await page.text();
+    assert.match(publicHtml, /<title>Giriş<\/title>/);
+    assert.doesNotMatch(publicHtml, /midas|portföy|hesap yönetimi|oturum|varlık/i);
+    for (const asset of ["/login.css", "/login.js", "/favicon.svg"]) {
+      const response = await fetch(`${base}${asset}`);
+      assert.equal(response.status, 200);
+      if (asset !== "/favicon.svg") {
+        assert.doesNotMatch(await response.text(), /midas|portföy|hesap yönetimi|oturum|varlık/i);
+      }
+    }
+    assert.equal((await fetch(`${base}/app.css`)).status, 404);
+    assert.equal((await fetch(`${base}/app.js`)).status, 404);
 
     assert.equal((await fetch(`${base}/api/dashboard/state`)).status, 401);
     assert.equal((await post("/api/dashboard/login", null, null,
@@ -53,6 +64,12 @@ test("dashboard login protects status and manual renewal", async () => {
     assert.match(loggedIn.headers.get("set-cookie"), /HttpOnly; SameSite=Strict/);
     const { csrf } = await loggedIn.json();
 
+    const dashboardPage = await fetch(base, { headers: { Cookie: cookie } });
+    assert.equal(dashboardPage.status, 200);
+    assert.match(await dashboardPage.text(), /Oturum ve varlıklar/);
+    assert.equal((await fetch(`${base}/app.css`, { headers: { Cookie: cookie } })).status, 200);
+    assert.equal((await fetch(`${base}/app.js`, { headers: { Cookie: cookie } })).status, 200);
+
     const state = await fetch(`${base}/api/dashboard/state`, { headers: { Cookie: cookie } });
     assert.equal(state.status, 200);
     assert.equal((await state.json()).session.state, "active");
@@ -64,6 +81,8 @@ test("dashboard login protects status and manual renewal", async () => {
 
     assert.equal((await post("/api/dashboard/logout", cookie, csrf)).status, 200);
     assert.equal((await fetch(`${base}/api/dashboard/state`, { headers: { Cookie: cookie } })).status, 401);
+    const afterLogout = await fetch(base, { headers: { Cookie: cookie } });
+    assert.match(await afterLogout.text(), /<title>Giriş<\/title>/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     Object.assign(session, original);
