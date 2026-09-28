@@ -103,16 +103,19 @@ function startJob(kind: SessionJob["kind"]): SessionJob {
   if (job?.state === "running") return job;
   const next: SessionJob = { kind, state: "running", startedAt: Date.now() };
   job = next;
+  console.error(`[midas-dashboard] ${kind} started`);
   void Promise.resolve()
     .then(() => kind === "renew" ? session.forceRelogin() : session.ensureStarted())
     .then(() => {
       next.state = "done";
       next.finishedAt = Date.now();
+      console.error(`[midas-dashboard] ${kind} completed`);
     })
     .catch((error: unknown) => {
       next.state = "failed";
       next.finishedAt = Date.now();
       next.error = error instanceof Error ? error.message : String(error);
+      console.error(`[midas-dashboard] ${kind} failed: ${next.error}`);
     });
   return next;
 }
@@ -209,6 +212,7 @@ export async function handleDashboardRequest(req: IncomingMessage, res: ServerRe
           ({ symbol, name, quantity, price, marketValue, currency, market })),
       });
     } catch (error) {
+      console.error("[midas-dashboard] holdings failed:", error instanceof Error ? error.message : String(error));
       json(res, 502, { error: error instanceof Error ? error.message : "Varlıklar alınamadı." });
     }
     return true;

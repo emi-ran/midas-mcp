@@ -61,6 +61,7 @@ export class MidasSession {
       },
       args: ["--disable-blink-features=AutomationControlled"],
     });
+    console.error("[midas-session] browser profile opened");
     this.page = this.context.pages()[0] ?? (await this.context.newPage());
 
     this.page.on("request", (req) => {
@@ -74,9 +75,10 @@ export class MidasSession {
     // browser to SSO even while its refresh cookie is still valid.
     if (await this.hasRefreshCookie()) {
       try {
-        await this.refreshAccessToken();
+        await this.refreshFromAtlasOrigin();
       } catch (error) {
         if (error instanceof RefreshTokenExpiredError) await this.clearAuthCookies();
+        else console.error("[midas-session] startup refresh failed:", error);
       }
     } else {
       // An access cookie can outlive the fixed 24-hour refresh token briefly.
@@ -85,10 +87,14 @@ export class MidasSession {
     await this.page.goto(config.atlasUrl, { waitUntil: "domcontentloaded" });
     await this.page.waitForTimeout(3000);
 
-    if (this.needsLogin()) await this.login();
+    const loginRequired = this.needsLogin();
+    if (loginRequired) await this.login();
     await this.waitForRid();
     await this.readMemberUid();
-    if (!this.refreshAt) await this.refreshAccessToken();
+    if ((loginRequired || !this.refreshAt) && !(await this.restoreTokenTimingFromCookies())) {
+      await this.refreshAccessToken();
+    }
+    console.error("[midas-session] Atlas session ready");
   }
 
   private async hasRefreshCookie(): Promise<boolean> {
@@ -101,6 +107,48 @@ export class MidasSession {
     await this.context!.clearCookies({ name: "refresh_token" });
   }
 
+  private cookieExpiryMs(cookie: { value: string; expires: number }): number | null {
+    try {
+      const payload = JSON.parse(Buffer.from(cookie.value.split(".")[1] ?? "", "base64url").toString("utf8"));
+      if (Number.isFinite(payload.exp) && payload.exp > 0) return payload.exp * 1_000;
+    } catch {
+      // Non-JWT cookies can still carry an Expires attribute.
+    }
+    return cookie.expires > 0 ? cookie.expires * 1_000 : null;
+  }
+
+  /** A fresh login already issued both tokens; no immediate refresh call is needed. */
+  private async restoreTokenTimingFromCookies(): Promise<boolean> {
+    const access = (await this.context!.cookies(config.graphqlUrl)).find((cookie) => cookie.name === "access_token");
+    const refresh = (await this.context!.cookies(TOKEN_URL)).find((cookie) => cookie.name === "refresh_token");
+    const accessExpiresAt = access ? this.cookieExpiryMs(access) : null;
+    const refreshExpiresAt = refresh ? this.cookieExpiryMs(refresh) : null;
+    if (!accessExpiresAt || !refreshExpiresAt || accessExpiresAt <= Date.now() || refreshExpiresAt <= Date.now()) {
+      return false;
+    }
+    this.refreshExpiresAt = refreshExpiresAt;
+    this.lastVerifiedAt = Date.now();
+    this.scheduleRefresh(Math.ceil((accessExpiresAt - Date.now()) / 1_000));
+    console.error("[midas-session] token expiry loaded from browser cookies");
+    return true;
+  }
+
+  /** Give Chromium an Atlas page origin before the real app is loaded. */
+  private async refreshFromAtlasOrigin(): Promise<void> {
+    const page = await this.context!.newPage();
+    try {
+      await page.route(config.atlasUrl, (route) => route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<!doctype html><title>Midas session renewal</title>",
+      }));
+      await page.goto(config.atlasUrl, { waitUntil: "domcontentloaded" });
+      await this.refreshAccessToken(page);
+    } finally {
+      await page.close();
+    }
+  }
+
   private scheduleRefresh(expiresInSeconds: number): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     // Leave a minute for network delay and clock differences.
@@ -108,38 +156,40 @@ export class MidasSession {
     this.refreshAt = Date.now() + delay;
     this.refreshTimer = setTimeout(() => {
       void this.refreshAccessToken().catch((error) => {
-        console.error("Midas token refresh failed; the next request will retry:", error);
+        console.error("[midas-session] token refresh failed; the next request will retry:", error);
       });
     }, delay);
     this.refreshTimer.unref();
   }
 
-  /** Uses the persistent browser profile's refresh cookie; Set-Cookie updates it. */
-  async refreshAccessToken(): Promise<void> {
+  /** Browser fetch uses the real page network stack and shares its HttpOnly cookies. */
+  async refreshAccessToken(refreshPage?: Page): Promise<void> {
     if (this.refreshing) return this.refreshing;
     this.refreshing = (async () => {
       if (!this.context || !(await this.hasRefreshCookie())) {
         throw new RefreshTokenExpiredError("No Midas refresh cookie is available; mobile login is required.");
       }
-      const response = await this.context.request.post(
-        TOKEN_URL,
-        {
-          headers: {
-            "content-type": "application/x-www-form-urlencoded",
-            origin: config.atlasUrl.slice(0, -1),
-            referer: config.atlasUrl,
-          },
-          data: "grant_type=refresh_token",
-        }
-      );
-      if (!response.ok()) {
-        if ([400, 401].includes(response.status())) {
-          throw new RefreshTokenExpiredError(`Midas refresh token was rejected (HTTP ${response.status()})`);
-        }
-        throw new Error(`Midas token refresh returned HTTP ${response.status()}`);
+      const page = refreshPage ?? this.page;
+      if (!page || new URL(page.url()).origin !== new URL(config.atlasUrl).origin) {
+        throw new Error("Midas token refresh requires an Atlas browser page");
       }
-      const result: { success?: boolean; accessTokenExpiresIn?: number; refreshTokenExpiresIn?: number } = await response.json();
-      if (result.success !== true || !Number.isFinite(result.accessTokenExpiresIn) ||
+      const response = await page.evaluate(async (url) => {
+        const res = await fetch(url, {
+          method: "POST",
+          credentials: "include",
+          headers: { accept: "*/*", "content-type": "application/x-www-form-urlencoded" },
+          body: "grant_type=refresh_token",
+        });
+        return { status: res.status, result: res.ok ? await res.json() : null };
+      }, TOKEN_URL);
+      if (response.status < 200 || response.status >= 300) {
+        if ([400, 401].includes(response.status)) {
+          throw new RefreshTokenExpiredError(`Midas refresh token was rejected (HTTP ${response.status})`);
+        }
+        throw new Error(`Midas token refresh returned HTTP ${response.status}`);
+      }
+      const result = response.result as { success?: boolean; accessTokenExpiresIn?: number; refreshTokenExpiresIn?: number } | null;
+      if (result?.success !== true || !Number.isFinite(result.accessTokenExpiresIn) ||
           result.accessTokenExpiresIn! <= 0) {
         throw new Error("Midas token refresh returned an invalid response");
       }
@@ -148,6 +198,9 @@ export class MidasSession {
       this.refreshExpiresAt = Number.isFinite(result.refreshTokenExpiresIn) && result.refreshTokenExpiresIn! > 0
         ? Date.now() + result.refreshTokenExpiresIn! * 1_000
         : null;
+      const refreshLifetime = result.refreshTokenExpiresIn === undefined
+        ? "unknown" : `${result.refreshTokenExpiresIn}s`;
+      console.error(`[midas-session] access token renewed; access lifetime ${result.accessTokenExpiresIn}s, refresh lifetime ${refreshLifetime}`);
     })().finally(() => {
       this.refreshing = null;
     });
@@ -196,7 +249,7 @@ export class MidasSession {
       if (this.needsLogin()) await this.login();
       await this.waitForRid();
       await this.readMemberUid();
-      await this.refreshAccessToken();
+      if (!(await this.restoreTokenTimingFromCookies())) await this.refreshAccessToken();
     })().finally(() => {
       this.recovering = null;
     });
@@ -222,7 +275,7 @@ export class MidasSession {
       if (this.needsLogin()) await this.login();
       await this.waitForRid();
       await this.readMemberUid();
-      await this.refreshAccessToken();
+      if (!(await this.restoreTokenTimingFromCookies())) await this.refreshAccessToken();
     })().finally(() => {
       this.manualRelogin = null;
     });
@@ -266,11 +319,15 @@ export class MidasSession {
     await page.fill("#phone", config.phone);
     await page.fill("#password", config.password);
     await page.click("button[type=submit]:not([disabled])");
+    console.error("[midas-session] login submitted; waiting for mobile approval");
 
     const deadline = Date.now() + 180_000;
     while (Date.now() < deadline) {
       const url = page.url();
-      if (url.startsWith(config.atlasUrl) && !url.includes("/auth/") && !url.includes("/login")) return;
+      if (url.startsWith(config.atlasUrl) && !url.includes("/auth/") && !url.includes("/login")) {
+        console.error("[midas-session] mobile approval completed; Atlas opened");
+        return;
+      }
       await page.waitForTimeout(1000);
     }
     throw new Error(

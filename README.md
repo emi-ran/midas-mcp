@@ -123,6 +123,10 @@ the resulting push notification in the Midas mobile app; the page follows the
 progress automatically. No trading controls are exposed in this dashboard. The
 existing `/mcp` endpoint continues to require `MCP_HTTP_TOKEN`.
 
+Session progress and failures are written to standard error with `[midas-session]`
+and `[midas-dashboard]` prefixes, so they appear in Dokploy's application logs (or
+`docker logs`). Passwords, cookies, and token values are not logged.
+
 Verify it works:
 
 ```bash

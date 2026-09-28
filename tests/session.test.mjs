@@ -11,36 +11,39 @@ test("refresh uses the profile cookie and schedules the next renewal", async () 
   const s = new MidasSession();
   let calls = 0;
   let requestedUrl;
-  let requestedOptions;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    calls++;
+    requestedUrl = url;
+    assert.equal(options.credentials, "include");
+    assert.equal(options.body, "grant_type=refresh_token");
+    assert.equal(options.headers["content-type"], "application/x-www-form-urlencoded");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return { status: 200, ok: true, json: async () => ({ success: true, accessTokenExpiresIn: 899 }) };
+  };
   Object.assign(s, {
     context: {
       cookies: async (url) => {
         assert.match(url, /\/sso-bff\/v1\/oauth2\/web\/token$/);
         return [{ name: "refresh_token" }];
       },
-      request: {
-        post: async (url, options) => {
-          calls++;
-          requestedUrl = url;
-          requestedOptions = options;
-          await new Promise((resolve) => setTimeout(resolve, 5));
-          return {
-            ok: () => true,
-            json: async () => ({ success: true, accessTokenExpiresIn: 899 }),
-          };
-        },
-      },
       close: async () => {},
+    },
+    page: {
+      url: () => "https://atlas.getmidas.com/",
+      evaluate: async (fn, url) => fn(url),
     },
   });
 
-  await Promise.all([s.refreshAccessToken(), s.refreshAccessToken()]);
-  assert.equal(calls, 1);
-  assert.equal(requestedUrl, "https://api.atlas.getmidas.com/sso-bff/v1/oauth2/web/token");
-  assert.equal(requestedOptions.data, "grant_type=refresh_token");
-  assert.equal(requestedOptions.headers["content-type"], "application/x-www-form-urlencoded");
-  assert.ok(s.refreshAt > Date.now() + 13 * 60_000);
-  await s.close();
+  try {
+    await Promise.all([s.refreshAccessToken(), s.refreshAccessToken()]);
+    assert.equal(calls, 1);
+    assert.equal(requestedUrl, "https://api.atlas.getmidas.com/sso-bff/v1/oauth2/web/token");
+    assert.ok(s.refreshAt > Date.now() + 13 * 60_000);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await s.close();
+  }
 });
 
 test("an expired refresh cookie clears auth cookies before mobile login", async () => {
@@ -53,21 +56,16 @@ test("an expired refresh cookie clears auth cookies before mobile login", async 
     context: {
       cookies: async () => hasRefreshCookie ? [{ name: "refresh_token" }] : [],
       clearCookies: async ({ name }) => { cleared.push(name); },
-      request: {
-        post: async () => {
-          refreshes++;
-          return {
-            ok: () => true,
-            json: async () => ({ success: true, accessTokenExpiresIn: 899 }),
-          };
-        },
-      },
       close: async () => {},
     },
     page: {
       isClosed: () => false,
       url: () => pageUrl,
       goto: async () => { pageUrl = "https://sso.getmidas.com/login"; },
+      evaluate: async () => {
+        refreshes++;
+        return { status: 200, result: { success: true, accessTokenExpiresIn: 899 } };
+      },
     },
     login: async () => {
       hasRefreshCookie = true;
@@ -88,22 +86,25 @@ test("manual renewal starts a fresh login and records the new 24-hour expiry", a
   const cleared = [];
   let url = "https://atlas.getmidas.com/";
   let logins = 0;
+  let redundantRefreshes = 0;
+  const expiresAt = Math.floor(Date.now() / 1_000);
+  const cookie = (name, seconds) => ({
+    name,
+    value: `header.${Buffer.from(JSON.stringify({ exp: expiresAt + seconds })).toString("base64url")}.signature`,
+    expires: expiresAt + seconds,
+  });
   Object.assign(s, {
     context: {
-      cookies: async () => [{ name: "refresh_token" }],
+      cookies: async (requestedUrl) => requestedUrl.includes("router-graphql")
+        ? [cookie("access_token", 899)] : [cookie("refresh_token", 86_400)],
       clearCookies: async ({ name }) => { cleared.push(name); },
-      request: {
-        post: async () => ({
-          ok: () => true,
-          json: async () => ({ success: true, accessTokenExpiresIn: 899, refreshTokenExpiresIn: 86_400 }),
-        }),
-      },
       close: async () => {},
     },
     page: {
       isClosed: () => false,
       url: () => url,
       goto: async () => { url = "https://sso.getmidas.com/login"; },
+      evaluate: async () => { redundantRefreshes++; throw new Error("unexpected refresh"); },
     },
     login: async () => { logins++; url = "https://atlas.getmidas.com/"; },
     waitForRid: async () => {},
@@ -113,6 +114,7 @@ test("manual renewal starts a fresh login and records the new 24-hour expiry", a
   await s.forceRelogin();
   assert.deepEqual(cleared, ["access_token", "refresh_token"]);
   assert.equal(logins, 1);
+  assert.equal(redundantRefreshes, 0);
   assert.equal(s.getStatus().state, "active");
   assert.ok(s.getStatus().refreshExpiresAt > Date.now() + 23 * 3_600_000);
   await s.close();
