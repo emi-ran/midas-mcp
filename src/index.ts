@@ -9,6 +9,7 @@ import { config } from "./config.js";
 import { session } from "./session.js";
 import * as midas from "./midas.js";
 import { getTechnicals, getCandles } from "./technicals.js";
+import { handleDashboardRequest } from "./dashboard.js";
 
 function makeServer() {
 const server = new McpServer({ name: "midas-mcp", version: "0.1.0" });
@@ -214,13 +215,24 @@ process.on("SIGTERM", shutdown);
 if (config.httpPort) {
   const token = Buffer.from(config.httpToken!);
   const http = createServer(async (req, res) => {
+    if (req.url !== "/mcp") {
+      try {
+        if (await handleDashboardRequest(req, res)) return;
+      } catch (error) {
+        console.error("Dashboard request failed", error);
+        if (!res.headersSent) res.writeHead(500).end();
+        return;
+      }
+      res.writeHead(404).end();
+      return;
+    }
     const supplied = req.headers.authorization;
     const bearer = supplied?.startsWith("Bearer ") ? Buffer.from(supplied.slice(7)) : Buffer.alloc(0);
     if (bearer.length !== token.length || !timingSafeEqual(bearer, token)) {
       res.writeHead(401, { "content-type": "application/json" }).end('{"error":"Unauthorized"}');
       return;
     }
-    if (req.url !== "/mcp" || req.method !== "POST") {
+    if (req.method !== "POST") {
       res.writeHead(404).end();
       return;
     }

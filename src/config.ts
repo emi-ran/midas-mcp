@@ -22,6 +22,9 @@ export const config = {
   sessionDir: process.env.MIDAS_SESSION_DIR ?? path.join(PROJECT_ROOT, ".midas-session"),
   httpPort: process.env.MCP_HTTP_PORT ? Number(process.env.MCP_HTTP_PORT) : null,
   httpToken: process.env.MCP_HTTP_TOKEN,
+  dashboardUsername: process.env.DASHBOARD_USERNAME ?? process.env.MIDAS_PHONE!,
+  dashboardPassword: process.env.DASHBOARD_PASSWORD ?? process.env.MIDAS_PASSWORD!,
+  dashboardCookieSecure: (process.env.DASHBOARD_COOKIE_SECURE ?? "true").toLowerCase() !== "false",
   atlasUrl: "https://atlas.getmidas.com/",
   graphqlUrl: "https://api.atlas.getmidas.com/router-graphql",
   /** Sent as x-client-version; only needs to look like a real web build. */

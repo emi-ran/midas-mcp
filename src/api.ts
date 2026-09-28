@@ -4,8 +4,8 @@ import { session } from "./session.js";
 export class MidasApiError extends Error {}
 
 const SESSION_EXPIRED =
-  "Midas session has expired. Run `npm run login`, approve the push " +
-  "notification on your phone, then retry. Stop the MCP server first — it holds the same browser profile.";
+  "Midas session has expired and could not be renewed. Approve the login " +
+  "notification in the Midas mobile app, then retry.";
 
 /**
  * Issue a GraphQL request from inside the authenticated page so that session
@@ -19,8 +19,6 @@ export async function gql<T = any>(
   /** Overrides the routing header when the document's first selection is an alias. */
   rootFieldOverride?: string
 ): Promise<T> {
-  const page = await session.getPage();
-  const rid = await session.getRid();
   const body = JSON.stringify({ operationName, query, variables });
 
   // The gateway routes on the root field name, which is normally the first selection
@@ -28,9 +26,11 @@ export async function gql<T = any>(
   const rootField =
     rootFieldOverride ?? query.match(/\{\s*([A-Za-z_][A-Za-z0-9_]*)/)?.[1] ?? operationName;
 
-  let result: { status: number; text: string };
-  try {
-    result = (await page.evaluate(
+  const request = async (): Promise<{ status: number; text: string }> => {
+    await session.ensureFresh();
+    const page = await session.getPage();
+    const rid = await session.getRid();
+    return (await page.evaluate(
     `(async () => {
        const res = await fetch(${JSON.stringify(config.graphqlUrl)}, {
          method: "POST",
@@ -49,17 +49,34 @@ export async function gql<T = any>(
        return { status: res.status, text: await res.text() };
      })()`
     )) as { status: number; text: string };
+  };
+
+  let result: { status: number; text: string };
+  try {
+    result = await request();
   } catch (error) {
-    // A logged-out page is served from a different origin, so the call fails as a
-    // network error rather than an HTTP status.
-    if (session.isLoggedOut()) throw new MidasApiError(SESSION_EXPIRED);
-    throw error;
+    if (!session.isLoggedOut()) throw error;
+    try {
+      await session.recoverAuth();
+      // An interrupted mutation may have reached Midas. Only replay reads.
+      if (!/^\s*query\b/i.test(query)) throw new MidasApiError("Session restored; retry the mutation after checking its status.");
+      result = await request();
+    } catch (recoveryError) {
+      if (recoveryError instanceof MidasApiError) throw recoveryError;
+      throw new MidasApiError(`${SESSION_EXPIRED} (${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)})`);
+    }
   }
 
   if (result.status === 401 || result.status === 403) {
-    throw new MidasApiError(
-      `${SESSION_EXPIRED} (Midas rejected the request with HTTP ${result.status}.)`
-    );
+    try {
+      await session.recoverAuth();
+      result = await request();
+    } catch (error) {
+      throw new MidasApiError(`${SESSION_EXPIRED} (${error instanceof Error ? error.message : String(error)})`);
+    }
+    if (result.status === 401 || result.status === 403) {
+      throw new MidasApiError(`Midas rejected the request with HTTP ${result.status} after session renewal`);
+    }
   }
 
   let parsed: { data?: T; errors?: { message: string }[] };

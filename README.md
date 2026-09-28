@@ -81,9 +81,13 @@ browser follows `HEADLESS` from `.env` (set `HEADLESS=false` to see it):
 npm run login          # approve the prompt on your phone
 ```
 
-The session is saved to `.midas-session/` and reused afterwards, so this is a one-off
-until the session expires. Only one process can use that profile at a time — stop the
-MCP server before running `npm run login`.
+The session is saved to `.midas-session/` and reused afterwards. The server renews the
+access token with the profile's refresh cookie before it expires, including while idle.
+Midas's refresh-token lifetime counts down from the original login (about 24 hours);
+refreshing the access token does not extend it. Once the refresh token expires or is
+revoked, the next tool call starts the normal login flow and requires approval in the
+Midas mobile app. Only one process can use that profile at a time — stop the MCP
+server before running `npm run login` manually.
 
 ### Dokploy / MetaMCP (Streamable HTTP)
 
@@ -93,8 +97,8 @@ profile across container restarts. Set environment variables `MIDAS_PHONE`,
 `MIDAS_PASSWORD`, `HEADLESS=true`, `MCP_HTTP_PORT=3000`,
 `MIDAS_SESSION_DIR=/data/midas-session`, and a random `MCP_HTTP_TOKEN` of at least
 32 characters. Never commit these credentials. Use one replica: Chromium cannot
-share the same profile across processes. The first tool call starts headless login;
-approve the notification in the Midas phone app (also when the session expires).
+share the same profile across processes. The first tool call starts headless login if
+the saved session cannot be renewed; approve the notification in the Midas phone app.
 If login fails, the tool returns an error; retry after correcting credentials.
 
 Route a HTTPS domain to container port 3000, or use a private Docker network.
@@ -102,6 +106,22 @@ In MetaMCP choose **Streamable HTTP**, URL `https://YOUR_DOMAIN/mcp`, and header
 `Authorization: Bearer <MCP_HTTP_TOKEN>` (use MetaMCP's secure header field).
 Every request, including discovery, needs this header. Keep this endpoint private:
 it exposes real-money trading tools. No separate `npm run login` or `npm run start`.
+
+### Web dashboard
+
+In HTTP mode, open `https://YOUR_DOMAIN/` to use the management dashboard. The
+dashboard has its own username/password login. By default, it accepts `MIDAS_PHONE`
+as the username and `MIDAS_PASSWORD` as the password; set `DASHBOARD_USERNAME` and
+`DASHBOARD_PASSWORD` for a separate dashboard login. These values stay on the server.
+Use HTTPS: the dashboard cookie is `Secure`, `HttpOnly`, and `SameSite=Strict` by
+default. Set `DASHBOARD_COOKIE_SECURE=false` only when testing on plain local HTTP.
+
+The page shows whether the Midas browser session is active, when its fixed 24-hour
+refresh token expires, and your open holdings with quantity and market value. The
+**Oturumu Yenile** button starts a fresh Midas login even if time remains. Approve
+the resulting push notification in the Midas mobile app; the page follows the
+progress automatically. No trading controls are exposed in this dashboard. The
+existing `/mcp` endpoint continues to require `MCP_HTTP_TOKEN`.
 
 Verify it works:
 
@@ -133,6 +153,10 @@ Or, for any MCP client that reads a JSON config:
 `src/session.ts` launches a persistent Chromium profile and handles login. Auth is
 entirely cookie-based, so `src/api.ts` runs each GraphQL request via `page.evaluate`
 inside the authenticated page rather than reimplementing the token flow.
+Token renewal uses the same browser profile and Midas's web refresh endpoint; it
+does not store token values separately or print them to logs. A rejected GraphQL
+request gets one renewal and retry. Interrupted order mutations are not replayed
+when their outcome is unknown.
 
 Two details are easy to miss when working on this:
 
