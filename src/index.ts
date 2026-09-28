@@ -215,7 +215,7 @@ process.on("SIGTERM", shutdown);
 if (config.httpPort) {
   const token = Buffer.from(config.httpToken!);
   const http = createServer(async (req, res) => {
-    if (req.url !== "/mcp") {
+    if ((req.url ?? "/").split("?", 1)[0] !== "/mcp") {
       try {
         if (await handleDashboardRequest(req, res)) return;
       } catch (error) {
@@ -233,11 +233,16 @@ if (config.httpPort) {
       return;
     }
     if (req.method !== "POST") {
-      res.writeHead(404).end();
+      // A stateless MCP server has no standalone GET SSE stream. Streamable HTTP
+      // clients probe it after initialization and expect 405 (not 404) here.
+      res.writeHead(405, { Allow: "POST" }).end();
       return;
     }
     const instance = makeServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    transport.onerror = (error) => {
+      console.error("[midas-mcp] transport error:", error instanceof Error ? error.message : String(error));
+    };
     try {
       await instance.connect(transport);
       await transport.handleRequest(req, res);
