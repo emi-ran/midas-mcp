@@ -68,9 +68,12 @@ function renderState(data) {
   $("status-pill").dataset.state = state;
   $("status-label").textContent = text[0];
   $("session-heading").textContent = text[0];
-  $("session-description").textContent = text[1];
+  $("session-description").textContent = job?.state === "running"
+    ? "Giriş deneniyor. Bildirim henüz gelmediyse iptal edip yeniden deneyebilirsin."
+    : text[1];
   $("renew-button").disabled = job?.state === "running";
-  $("renew-label").textContent = job?.state === "running" ? "Onay bekleniyor" : "Oturumu Yenile";
+  $("renew-label").textContent = job?.state === "running" ? "Giriş sürüyor" : "Oturumu Yenile";
+  $("cancel-login").hidden = job?.state !== "running";
   $("reload-holdings").disabled = state !== "active";
   $("expiry-caption").textContent = session.refreshExpiresAt ? "İlk girişten başlayan 24 saatlik süre" : "Oturum doğrulandığında görünecek";
   $("last-verified").textContent = date(session.lastVerifiedAt);
@@ -81,9 +84,7 @@ function renderState(data) {
   notice.classList.toggle("notice-error", job?.state === "failed");
   if (job?.state === "running") {
     notice.hidden = false;
-    notice.textContent = job.kind === "renew"
-      ? "Yeni Midas girişi başlatıldı. Telefonuna gelen onayı tamamla; bu ekran kendiliğinden güncellenecek."
-      : "Midas bağlantısı kuruluyor. Gerekirse telefonuna gelen giriş bildirimini onayla.";
+    notice.textContent = "Giriş işlemi sürüyor. Bildirim henüz gelmemiş olabilir; gerekirse girişi iptal edip yeniden dene.";
   } else if (job?.state === "failed") {
     notice.hidden = false;
     notice.textContent = `Giriş tamamlanamadı: ${job.error || "Bilinmeyen hata"}`;
@@ -211,6 +212,21 @@ $("renew-button").addEventListener("click", async () => {
     notice.classList.add("notice-error");
     notice.textContent = error.message;
     $("renew-button").disabled = false;
+  }
+});
+
+$("cancel-login").addEventListener("click", async () => {
+  $("cancel-login").disabled = true;
+  try {
+    await request("/api/dashboard/cancel", { method: "POST", headers: { "X-CSRF-Token": csrf } });
+    await loadState();
+  } catch (error) {
+    const notice = $("job-notice");
+    notice.hidden = false;
+    notice.classList.add("notice-error");
+    notice.textContent = error.message;
+  } finally {
+    $("cancel-login").disabled = false;
   }
 });
 

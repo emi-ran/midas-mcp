@@ -13,6 +13,7 @@ test("dashboard login protects status and manual renewal", async () => {
   const original = {
     ensureStarted: session.ensureStarted,
     forceRelogin: session.forceRelogin,
+    cancelLogin: session.cancelLogin,
     getStatus: session.getStatus,
   };
   let renews = 0;
@@ -78,6 +79,23 @@ test("dashboard login protects status and manual renewal", async () => {
     assert.equal((await post("/api/dashboard/renew", cookie, csrf)).status, 202);
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(renews, 1);
+
+    let release;
+    let entered;
+    const began = new Promise((resolve) => { entered = resolve; });
+    session.forceRelogin = async () => {
+      entered();
+      await new Promise((resolve) => { release = resolve; });
+    };
+    session.cancelLogin = async () => { release(); };
+    assert.equal((await post("/api/dashboard/renew", cookie, csrf)).status, 202);
+    await began;
+    assert.equal((await post("/api/dashboard/cancel", cookie)).status, 403);
+    assert.equal((await post("/api/dashboard/cancel", cookie, csrf)).status, 200);
+    const cancelled = await (await fetch(`${base}/api/dashboard/state`, { headers: { Cookie: cookie } })).json();
+    assert.equal(cancelled.job.state, "failed");
+    assert.equal((await post("/api/dashboard/renew", cookie, csrf)).status, 202);
+    release();
 
     assert.equal((await post("/api/dashboard/logout", cookie, csrf)).status, 200);
     assert.equal((await fetch(`${base}/api/dashboard/state`, { headers: { Cookie: cookie } })).status, 401);

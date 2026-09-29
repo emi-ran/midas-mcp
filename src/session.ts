@@ -24,6 +24,24 @@ export class MidasSession {
   private refreshing: Promise<void> | null = null;
   private recovering: Promise<void> | null = null;
   private manualRelogin: Promise<void> | null = null;
+  private cancelRequested = false;
+
+  private checkCancelled(): void {
+    if (this.cancelRequested) throw new Error("Login cancelled");
+  }
+
+  async cancelLogin(): Promise<void> {
+    const pending = this.manualRelogin ?? this.starting;
+    if (!pending) return;
+    this.cancelRequested = true;
+    try {
+      await pending;
+    } catch {
+      // Cancelled work reports failure to its original caller.
+    } finally {
+      this.cancelRequested = false;
+    }
+  }
   private refreshTimer: NodeJS.Timeout | null = null;
   private refreshAt = 0;
   private refreshExpiresAt: number | null = null;
@@ -62,14 +80,8 @@ export class MidasSession {
       args: ["--disable-blink-features=AutomationControlled"],
     });
     console.error("[midas-session] browser profile opened");
+    this.observeRid();
     this.page = this.context.pages()[0] ?? (await this.context.newPage());
-
-    this.page.on("request", (req) => {
-      if (req.url().includes("router-graphql")) {
-        const observed = req.headers()["x-midas-rid"];
-        if (observed) this.rid = observed;
-      }
-    });
 
     // Refresh before navigating: an expired access token may otherwise send the
     // browser to SSO even while its refresh cookie is still valid.
@@ -86,15 +98,27 @@ export class MidasSession {
     }
     await this.page.goto(config.atlasUrl, { waitUntil: "domcontentloaded" });
     await this.page.waitForTimeout(3000);
+    this.checkCancelled();
 
     const loginRequired = this.needsLogin();
     if (loginRequired) await this.login();
+    this.checkCancelled();
     await this.waitForRid();
+    this.checkCancelled();
     await this.readMemberUid();
     if ((loginRequired || !this.refreshAt) && !(await this.restoreTokenTimingFromCookies())) {
       await this.refreshAccessToken();
     }
     console.error("[midas-session] Atlas session ready");
+  }
+
+  private observeRid(): void {
+    this.context!.on("request", (req) => {
+      if (!req.url().includes("router-graphql")) return;
+      void req.allHeaders().then((headers) => {
+        if (headers["x-midas-rid"]) this.rid = headers["x-midas-rid"];
+      }).catch(() => {});
+    });
   }
 
   private async hasRefreshCookie(): Promise<boolean> {
@@ -247,7 +271,9 @@ export class MidasSession {
       this.refreshTimer = null;
       await this.page!.goto(config.atlasUrl, { waitUntil: "domcontentloaded" });
       if (this.needsLogin()) await this.login();
+      this.checkCancelled();
       await this.waitForRid();
+      this.checkCancelled();
       await this.readMemberUid();
       if (!(await this.restoreTokenTimingFromCookies())) await this.refreshAccessToken();
     })().finally(() => {
@@ -273,7 +299,9 @@ export class MidasSession {
       await this.clearAuthCookies();
       await this.page!.goto(config.atlasUrl, { waitUntil: "domcontentloaded" });
       if (this.needsLogin()) await this.login();
+      this.checkCancelled();
       await this.waitForRid();
+      this.checkCancelled();
       await this.readMemberUid();
       if (!(await this.restoreTokenTimingFromCookies())) await this.refreshAccessToken();
     })().finally(() => {
@@ -323,6 +351,7 @@ export class MidasSession {
 
     const deadline = Date.now() + 180_000;
     while (Date.now() < deadline) {
+      this.checkCancelled();
       const url = page.url();
       if (url.startsWith(config.atlasUrl) && !url.includes("/auth/") && !url.includes("/login")) {
         console.error("[midas-session] mobile approval completed; Atlas opened");
@@ -339,8 +368,12 @@ export class MidasSession {
   private async waitForRid(): Promise<void> {
     const page = this.page!;
     for (let attempt = 0; attempt < 3 && !this.rid; attempt++) {
+      this.checkCancelled();
       if (attempt > 0) await page.reload({ waitUntil: "domcontentloaded" });
-      for (let i = 0; i < 40 && !this.rid; i++) await page.waitForTimeout(250);
+      for (let i = 0; i < 40 && !this.rid; i++) {
+        this.checkCancelled();
+        await page.waitForTimeout(250);
+      }
     }
     if (!this.rid) {
       throw new Error("Could not observe the app's x-midas-rid header; the session may be invalid.");

@@ -120,6 +120,55 @@ test("manual renewal starts a fresh login and records the new 24-hour expiry", a
   await s.close();
 });
 
+test("RID from context-level app requests is captured before page navigation", async () => {
+  const s = new MidasSession();
+  let requestListener;
+  const context = { on: (event, listener) => {
+    if (event === "request") requestListener = listener;
+  } };
+  Object.assign(s, { context });
+  s.observeRid();
+  assert.equal(typeof requestListener, "function");
+  await requestListener({
+    url: () => "https://api.atlas.getmidas.com/router-graphql",
+    allHeaders: async () => ({ "x-midas-rid": "observed-rid" }),
+  });
+  assert.equal(s.rid, "observed-rid");
+});
+
+test("a pending manual login can be cancelled and retried", async () => {
+  const s = new MidasSession();
+  let attempts = 0;
+  let release;
+  let started;
+  const entered = new Promise((resolve) => { started = resolve; });
+  Object.assign(s, {
+    context: { clearCookies: async () => {}, close: async () => {} },
+    page: {
+      isClosed: () => false,
+      url: () => "https://sso.getmidas.com/login",
+      goto: async () => {},
+    },
+    login: async () => {
+      attempts++;
+      started();
+      if (attempts === 1) await new Promise((resolve) => { release = resolve; });
+    },
+    waitForRid: async () => {},
+    readMemberUid: async () => {},
+    restoreTokenTimingFromCookies: async () => true,
+  });
+  const first = s.forceRelogin();
+  await entered;
+  const cancelling = s.cancelLogin();
+  release();
+  await cancelling;
+  await assert.rejects(first, /cancel/i);
+  await s.forceRelogin();
+  assert.equal(attempts, 2);
+  await s.close();
+});
+
 test("a confirmed auth rejection is retried once after renewal", async () => {
   const original = {
     ensureFresh: session.ensureFresh,

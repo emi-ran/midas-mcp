@@ -23,6 +23,7 @@ type SessionJob = {
 const logins = new Map<string, DashboardLogin>();
 const attempts = new Map<string, { count: number; until: number }>();
 let job: SessionJob | null = null;
+let cancellingJob: Promise<void> | null = null;
 
 function sameSecret(actual: string, expected: string): boolean {
   const a = createHash("sha256").update(actual).digest();
@@ -108,11 +109,13 @@ function startJob(kind: SessionJob["kind"]): SessionJob {
   void Promise.resolve()
     .then(() => kind === "renew" ? session.forceRelogin() : session.ensureStarted())
     .then(() => {
+      if (next.state !== "running") return;
       next.state = "done";
       next.finishedAt = Date.now();
       console.error(`[midas-dashboard] ${kind} completed`);
     })
     .catch((error: unknown) => {
+      if (next.state !== "running") return;
       next.state = "failed";
       next.finishedAt = Date.now();
       next.error = error instanceof Error ? error.message : String(error);
@@ -239,7 +242,26 @@ export async function handleDashboardRequest(req: IncomingMessage, res: ServerRe
       return true;
     }
     if (pathname === "/api/dashboard/renew") {
+      if (cancellingJob) {
+        json(res, 409, { error: "Önceki giriş iptal ediliyor." });
+        return true;
+      }
       json(res, 202, { job: startJob("renew") });
+      return true;
+    }
+    if (pathname === "/api/dashboard/cancel") {
+      if (job?.state !== "running") {
+        json(res, 409, { error: "İptal edilecek giriş yok." });
+        return true;
+      }
+      const current = job;
+      cancellingJob ??= session.cancelLogin().then(() => {
+        current.state = "failed";
+        current.error = "Giriş iptal edildi. Tekrar deneyebilirsiniz.";
+        current.finishedAt = Date.now();
+      }).finally(() => { cancellingJob = null; });
+      await cancellingJob;
+      json(res, 200, { job: current });
       return true;
     }
     if (pathname === "/api/dashboard/logout") {

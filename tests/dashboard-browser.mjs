@@ -10,6 +10,8 @@ const { config } = await import("../dist/config.js");
 const { session } = await import("../dist/session.js");
 const original = {
   ensureStarted: session.ensureStarted,
+  forceRelogin: session.forceRelogin,
+  cancelLogin: session.cancelLogin,
   getStatus: session.getStatus,
 };
 Object.assign(session, {
@@ -42,6 +44,28 @@ try {
   await page.locator(".session-card").waitFor();
   assert.equal(await page.title(), "Midas · Oturum");
   assert.match(await page.locator("body").innerText(), /Oturum ve varlıklar/);
+
+  let release;
+  let entered;
+  const began = new Promise((resolve) => { entered = resolve; });
+  session.forceRelogin = async () => {
+    entered();
+    await new Promise((resolve) => { release = resolve; });
+    throw new Error("Login cancelled");
+  };
+  session.cancelLogin = async () => { release(); };
+  await page.locator("#renew-button").click();
+  await began;
+  await page.locator("#cancel-login").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#renew-button").isDisabled(), true);
+  await page.locator("#cancel-login").click();
+  await page.getByText("Giriş tamamlanamadı: Giriş iptal edildi.", { exact: false }).waitFor();
+  assert.equal(await page.locator("#renew-button").isEnabled(), true);
+  let retries = 0;
+  session.forceRelogin = async () => { retries++; };
+  await page.locator("#renew-button").click();
+  await page.waitForFunction(() => document.querySelector("#renew-label")?.textContent === "Oturumu Yenile");
+  assert.equal(retries, 1);
 
   await page.locator("#logout-button").click();
   await page.locator("#login-form").waitFor();
